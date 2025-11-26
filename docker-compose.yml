@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  # ClickHouse - 数据存储
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse
+    ports:
+      - "8123:8123"  # HTTP接口
+      - "9000:9000"  # 原生接口
+    environment:
+      - CLICKHOUSE_DB=observability
+      - CLICKHOUSE_USER=admin
+      - CLICKHOUSE_PASSWORD=password
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    networks:
+      - observability-net
+
+  # Prometheus - 指标收集
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    networks:
+      - observability-net
+    depends_on:
+      - clickhouse
+
+  # Grafana - 可视化
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - observability-net
+    depends_on:
+      - prometheus
+      - clickhouse
+
+  # 示例应用 - 生成指标、日志、Trace
+  example-app:
+    build:
+      context: ./example-app
+      dockerfile: Dockerfile
+    container_name: example-app
+    ports:
+      - "8000:8000"
+    environment:
+      - CLICKHOUSE_HOST=clickhouse
+      - CLICKHOUSE_PORT=8123
+      - CLICKHOUSE_USER=admin
+      - CLICKHOUSE_PASSWORD=password
+    networks:
+      - observability-net
+    depends_on:
+      - clickhouse
+
+volumes:
+  clickhouse_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  observability-net:
+    driver: bridge
